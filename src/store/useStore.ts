@@ -61,14 +61,43 @@ export interface Movimiento {
   createdAt: string
 }
 
+export interface Comprobante {
+  id: string
+  numero: string
+  numeroSeq: number
+  transferenciaId?: string | null
+  walletOrigenId?: string | null
+  walletDestinoId?: string | null
+  clienteId?: string | null
+  titularOrigen: string
+  cuitOrigen: string
+  cvuOrigen: string
+  titularDestino: string
+  cuitDestino: string
+  cvuDestino: string
+  monto: number
+  moneda: string
+  concepto: string
+  descripcion?: string
+  coelsaId?: string
+  originId?: string
+  saldoAnterior?: number
+  saldoPosterior?: number
+  banco: string
+  payload?: any
+  createdAt: string
+}
+
 export type WalletInput = Omit<Wallet, 'id' | 'createdAt'> & { id?: string }
 export type MovimientoInput = Omit<Movimiento, 'id' | 'createdAt'> & { createdAt?: string }
+export type ComprobanteInput = Omit<Comprobante, 'id' | 'numero' | 'numeroSeq' | 'createdAt'>
 
 interface AppState {
   clientes: Cliente[]
   wallets: Wallet[]
   transferencias: Transferencia[]
   movimientos: Movimiento[]
+  comprobantes: Comprobante[]
   loading: boolean
   loadAll: () => Promise<void>
   addCliente: (data: Omit<Cliente, 'id' | 'createdAt'>) => Promise<Cliente>
@@ -77,6 +106,7 @@ interface AppState {
   updateWalletEstado: (id: string, estado: Wallet['estado']) => Promise<void>
   addTransferencia: (data: Omit<Transferencia, 'id' | 'createdAt'> & { createdAt?: string }) => Promise<Transferencia>
   addMovimiento: (data: MovimientoInput) => Promise<Movimiento>
+  addComprobante: (data: ComprobanteInput) => Promise<Comprobante>
   updateSaldo: (walletId: string, amount: number, tipo: 'credito' | 'debito') => Promise<{ anterior: number; posterior: number }>
   clearAll: () => void
 }
@@ -130,20 +160,49 @@ const mapMovimientoRow = (r: any): Movimiento => ({
   createdAt: r.created_at,
 })
 
+const mapComprobanteRow = (r: any): Comprobante => ({
+  id: r.id,
+  numero: r.numero || '',
+  numeroSeq: Number(r.numero_seq) || 0,
+  transferenciaId: r.transferencia_id || null,
+  walletOrigenId: r.wallet_origen_id || null,
+  walletDestinoId: r.wallet_destino_id || null,
+  clienteId: r.cliente_id || null,
+  titularOrigen: r.titular_origen || '',
+  cuitOrigen: r.cuit_origen || '',
+  cvuOrigen: r.cvu_origen || '',
+  titularDestino: r.titular_destino || '',
+  cuitDestino: r.cuit_destino || '',
+  cvuDestino: r.cvu_destino || '',
+  monto: Number(r.monto) || 0,
+  moneda: r.moneda || 'ARS',
+  concepto: r.concepto || '',
+  descripcion: r.descripcion || '',
+  coelsaId: r.coelsa_id || '',
+  originId: r.origin_id || '',
+  saldoAnterior: r.saldo_anterior != null ? Number(r.saldo_anterior) : undefined,
+  saldoPosterior: r.saldo_posterior != null ? Number(r.saldo_posterior) : undefined,
+  banco: r.banco || 'Banco de Comercio',
+  payload: r.payload || null,
+  createdAt: r.created_at,
+})
+
 export const useStore = create<AppState>()((set, get) => ({
   clientes: [],
   wallets: [],
   transferencias: [],
   movimientos: [],
+  comprobantes: [],
   loading: false,
 
   loadAll: async () => {
     set({ loading: true })
-    const [clientesRes, walletsRes, transferenciasRes, movimientosRes] = await Promise.all([
+    const [clientesRes, walletsRes, transferenciasRes, movimientosRes, comprobantesRes] = await Promise.all([
       supabase.from('clientes').select('*').order('created_at', { ascending: false }),
       supabase.from('wallets').select('*').order('created_at', { ascending: false }),
       supabase.from('transferencias').select('*').order('created_at', { ascending: false }),
       supabase.from('movimientos').select('*').order('created_at', { ascending: false }),
+      supabase.from('comprobantes').select('*').order('created_at', { ascending: false }),
     ])
     set({
       clientes: (clientesRes.data || []).map((r: any) => ({
@@ -159,6 +218,7 @@ export const useStore = create<AppState>()((set, get) => ({
       wallets: (walletsRes.data || []).map(mapWalletRow),
       transferencias: (transferenciasRes.data || []).map(mapTransferenciaRow),
       movimientos: (movimientosRes.data || []).map(mapMovimientoRow),
+      comprobantes: (comprobantesRes.data || []).map(mapComprobanteRow),
       loading: false,
     })
   },
@@ -233,7 +293,6 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   addTransferencia: async (data) => {
-    // Si el destino (toAddress) coincide con una wallet del sistema, guardamos su id como wallet_destino_id
     const walletDestino = get().wallets.find(
       (w) => w.cvu === data.toAddress || w.alias === data.toAddress
     )
@@ -287,6 +346,40 @@ export const useStore = create<AppState>()((set, get) => ({
     return nuevo
   },
 
+  addComprobante: async (data) => {
+    const payload: Record<string, any> = {
+      transferencia_id: data.transferenciaId || null,
+      wallet_origen_id: data.walletOrigenId || null,
+      wallet_destino_id: data.walletDestinoId || null,
+      cliente_id: data.clienteId || null,
+      titular_origen: data.titularOrigen || null,
+      cuit_origen: data.cuitOrigen || null,
+      cvu_origen: data.cvuOrigen || null,
+      titular_destino: data.titularDestino || null,
+      cuit_destino: data.cuitDestino || null,
+      cvu_destino: data.cvuDestino || null,
+      monto: data.monto,
+      moneda: data.moneda || 'ARS',
+      concepto: data.concepto || null,
+      descripcion: data.descripcion || null,
+      coelsa_id: data.coelsaId || null,
+      origin_id: data.originId || null,
+      saldo_anterior: data.saldoAnterior ?? null,
+      saldo_posterior: data.saldoPosterior ?? null,
+      banco: data.banco || 'Banco de Comercio',
+      payload: data.payload || null,
+    }
+    const { data: row, error } = await supabase
+      .from('comprobantes')
+      .insert(payload)
+      .select()
+      .single()
+    if (error) throw error
+    const nuevo = mapComprobanteRow(row)
+    set((s) => ({ comprobantes: [nuevo, ...s.comprobantes] }))
+    return nuevo
+  },
+
   updateSaldo: async (walletId, amount, tipo) => {
     const wallet = get().wallets.find((w) => w.id === walletId)
     if (!wallet) throw new Error('Wallet no encontrada')
@@ -304,5 +397,5 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   clearAll: () =>
-    set({ clientes: [], wallets: [], transferencias: [], movimientos: [] }),
+    set({ clientes: [], wallets: [], transferencias: [], movimientos: [], comprobantes: [] }),
 }))

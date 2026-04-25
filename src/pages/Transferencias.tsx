@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useStore } from '../store/useStore'
+import type { Comprobante } from '../store/useStore'
 import { bdcService } from '../services/bdcService'
+import ComprobanteModal from '../components/ComprobanteModal'
 
 const EMPTY_FORM = {
   fromWalletId: '',
@@ -16,18 +18,23 @@ export default function Transferencias() {
     wallets,
     clientes,
     transferencias,
+    comprobantes,
     addTransferencia,
     addMovimiento,
+    addComprobante,
     updateSaldo,
   } = useStore()
   const [form, setForm] = useState(EMPTY_FORM)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
   const [tab, setTab] = useState<'nueva' | 'historial'>('nueva')
+  const [comprobanteActivo, setComprobanteActivo] = useState<Comprobante | null>(null)
 
   const walletsActivas = wallets.filter((w) => w.estado === 'activa')
   const getCliente = (id: string) => clientes.find((c) => c.id === id)
   const walletOrigen = wallets.find((w) => w.id === form.fromWalletId)
+  const findComprobantePorTransferencia = (trxId: string) =>
+    comprobantes.find((c) => c.transferenciaId === trxId)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -38,10 +45,7 @@ export default function Transferencias() {
       return
     }
     if (monto > walletOrigen.saldo) {
-      setMsg({
-        tipo: 'err',
-        texto: 'Saldo insuficiente. Disponible: $' + walletOrigen.saldo.toLocaleString('es-AR'),
-      })
+      setMsg({ tipo: 'err', texto: 'Saldo insuficiente. Disponible: $' + walletOrigen.saldo.toLocaleString('es-AR') })
       return
     }
 
@@ -64,6 +68,9 @@ export default function Transferencias() {
       const walletDestinoInterna = wallets.find(
         (w) => w.cvu === form.toAddress || w.alias === form.toAddress
       )
+      const clienteDestino = walletDestinoInterna ? getCliente(walletDestinoInterna.clienteId) : null
+      const titularOrigen = cliente ? `${cliente.nombre} ${cliente.apellido}`.trim() : (walletOrigen.titular || '—')
+      const titularDestino = clienteDestino ? `${clienteDestino.nombre} ${clienteDestino.apellido}`.trim() : '—'
 
       if (res.ok) {
         const trx = await addTransferencia({
@@ -87,9 +94,7 @@ export default function Transferencias() {
           cvu: walletOrigen.cvu,
           tipo: 'debito',
           amount: monto,
-          description:
-            form.description ||
-            `Transferencia a ${form.toAddress.slice(0, 14)}... (${form.concept})`,
+          description: form.description || `Transferencia a ${form.toAddress.slice(0, 14)}... (${form.concept})`,
           estado: 'completado',
           referencia: res.coelsaId || oid,
           saldoAnterior: debSaldo.anterior,
@@ -104,9 +109,7 @@ export default function Transferencias() {
             cvu: walletDestinoInterna.cvu,
             tipo: 'credito',
             amount: monto,
-            description:
-              form.description ||
-              `Transferencia recibida de ${walletOrigen.cvu.slice(-8)} (${form.concept})`,
+            description: form.description || `Transferencia recibida de ${walletOrigen.cvu.slice(-8)} (${form.concept})`,
             estado: 'completado',
             referencia: res.coelsaId || oid,
             saldoAnterior: credSaldo.anterior,
@@ -115,13 +118,38 @@ export default function Transferencias() {
           })
         }
 
-        setMsg({
-          tipo: 'ok',
-          texto:
-            'Transferencia enviada! ID Coelsa: ' +
-            res.coelsaId +
-            (walletDestinoInterna ? ' (acreditado a wallet interna)' : ''),
+        // Generar y persistir comprobante
+        const comp = await addComprobante({
+          transferenciaId: trx.id,
+          walletOrigenId: walletOrigen.id,
+          walletDestinoId: walletDestinoInterna?.id || null,
+          clienteId: walletOrigen.clienteId,
+          titularOrigen,
+          cuitOrigen: cliente?.cuit || '',
+          cvuOrigen: walletOrigen.cvu,
+          titularDestino,
+          cuitDestino: form.toCuit,
+          cvuDestino: form.toAddress,
+          monto,
+          moneda: 'ARS',
+          concepto: form.concept,
+          descripcion: form.description,
+          coelsaId: res.coelsaId || '',
+          originId: oid,
+          saldoAnterior: debSaldo.anterior,
+          saldoPosterior: debSaldo.posterior,
+          banco: 'Banco de Comercio',
+          payload: {
+            origen: { titular: titularOrigen, cuit: cliente?.cuit, cvu: walletOrigen.cvu, walletId: walletOrigen.id },
+            destino: { titular: titularDestino, cuit: form.toCuit, cvu: form.toAddress, interna: !!walletDestinoInterna },
+            operacion: { monto, moneda: 'ARS', concepto: form.concept, descripcion: form.description, coelsaId: res.coelsaId, originId: oid },
+            saldos: { anterior: debSaldo.anterior, posterior: debSaldo.posterior },
+            timestamp: new Date().toISOString(),
+          },
         })
+
+        setMsg({ tipo: 'ok', texto: 'Transferencia enviada. Comprobante ' + comp.numero + (walletDestinoInterna ? ' (acreditado a wallet interna)' : '') })
+        setComprobanteActivo(comp)
         setForm(EMPTY_FORM)
         setTab('historial')
       } else {
@@ -141,10 +169,7 @@ export default function Transferencias() {
       }
     } catch (err: any) {
       console.error('[Transferencias] handleSubmit error:', err)
-      setMsg({
-        tipo: 'err',
-        texto: 'Error al guardar la transferencia: ' + (err?.message || String(err)),
-      })
+      setMsg({ tipo: 'err', texto: 'Error al guardar la transferencia: ' + (err?.message || String(err)) })
     } finally {
       setLoading(false)
     }
@@ -159,9 +184,7 @@ export default function Transferencias() {
     return m[estado] || { bg: '#374151', color: '#9CA3AF' }
   }
 
-  const volumen = transferencias
-    .filter((t) => t.estado === 'completada')
-    .reduce((a, t) => a + t.amount, 0)
+  const volumen = transferencias.filter((t) => t.estado === 'completada').reduce((a, t) => a + t.amount, 0)
 
   return (
     <div>
@@ -278,16 +301,17 @@ export default function Transferencias() {
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
               <tr style={{ borderBottom: '1px solid #374151' }}>
-                {['Fecha', 'Origen CVU', 'Destino', 'Monto', 'Concepto', 'Estado', 'ID Coelsa'].map((h) => (
+                {['Fecha', 'Origen CVU', 'Destino', 'Monto', 'Concepto', 'Estado', 'ID Coelsa', 'Comprobante'].map((h) => (
                   <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase' }}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {transferencias.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: '#6B7280' }}>No hay transferencias registradas aún</td></tr>
+                <tr><td colSpan={8} style={{ padding: 40, textAlign: 'center', color: '#6B7280' }}>No hay transferencias registradas aún</td></tr>
               ) : transferencias.map((t, i) => {
                 const b = badge(t.estado)
+                const comp = findComprobantePorTransferencia(t.id)
                 return (
                   <tr key={t.id} style={{ borderBottom: '1px solid #374151', background: i % 2 === 0 ? 'transparent' : '#111827' }}>
                     <td style={{ padding: '12px 16px', color: '#9CA3AF', fontSize: 13 }}>{new Date(t.createdAt).toLocaleString('es-AR')}</td>
@@ -297,6 +321,15 @@ export default function Transferencias() {
                     <td style={{ padding: '12px 16px', color: '#9CA3AF', fontSize: 13 }}>{t.concept}</td>
                     <td style={{ padding: '12px 16px' }}><span style={{ background: b.bg, color: b.color, borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>{t.estado}</span></td>
                     <td style={{ padding: '12px 16px', color: '#6B7280', fontFamily: 'monospace', fontSize: 11 }}>{t.coelsaId || '—'}</td>
+                    <td style={{ padding: '12px 16px' }}>
+                      {comp ? (
+                        <button onClick={() => setComprobanteActivo(comp)} style={{ background: '#1E3A5F', color: '#60A5FA', border: '1px solid #2563EB', borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                          📄 Ver
+                        </button>
+                      ) : (
+                        <span style={{ color: '#6B7280', fontSize: 12 }}>—</span>
+                      )}
+                    </td>
                   </tr>
                 )
               })}
@@ -304,6 +337,8 @@ export default function Transferencias() {
           </table>
         </div>
       )}
+
+      <ComprobanteModal comprobante={comprobanteActivo} onClose={() => setComprobanteActivo(null)} />
     </div>
   )
 }
