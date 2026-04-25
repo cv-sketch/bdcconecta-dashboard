@@ -18,8 +18,16 @@ export interface Wallet {
   cvu: string
   alias: string
   saldo: number
-  estado: 'activa' | 'suspendida' | 'bloqueada'
+  estado: 'activa' | 'suspendida' | 'bloqueada' | 'inactiva' | 'pendiente'
   createdAt: string
+  cuit?: string
+  titular?: string
+  tipo?: 'fisica' | 'juridica' | null
+  numeroCuenta?: string | null
+  banco?: string | null
+  bankOriginId?: string | null
+  bankSubaccountId?: string | null
+  bankResponse?: any
 }
 
 export interface Transferencia {
@@ -49,6 +57,8 @@ export interface Movimiento {
   createdAt: string
 }
 
+export type WalletInput = Omit<Wallet, 'id' | 'createdAt'> & { id?: string }
+
 interface AppState {
   clientes: Cliente[]
   wallets: Wallet[]
@@ -58,13 +68,31 @@ interface AppState {
   loadAll: () => Promise<void>
   addCliente: (data: Omit<Cliente, 'id' | 'createdAt'>) => Promise<Cliente>
   deleteCliente: (clienteId: string) => Promise<void>
-  addWallet: (wallet: Wallet) => Promise<void>
+  addWallet: (wallet: WalletInput) => Promise<Wallet>
   updateWalletEstado: (id: string, estado: Wallet['estado']) => Promise<void>
   addTransferencia: (data: Omit<Transferencia, 'id'>) => Promise<Transferencia>
   addMovimiento: (data: Omit<Movimiento, 'id'>) => Promise<void>
   updateSaldo: (walletId: string, amount: number, tipo: 'credito' | 'debito') => Promise<void>
   clearAll: () => void
 }
+
+const mapWalletRow = (r: any): Wallet => ({
+  id: r.id,
+  clienteId: r.cliente_id,
+  cvu: r.cvu || '',
+  alias: r.alias || '',
+  saldo: Number(r.saldo) || 0,
+  estado: r.estado || 'activa',
+  createdAt: r.created_at,
+  cuit: r.cuit || undefined,
+  titular: r.titular || undefined,
+  tipo: r.tipo || null,
+  numeroCuenta: r.numero_cuenta || null,
+  banco: r.banco || null,
+  bankOriginId: r.bank_origin_id || null,
+  bankSubaccountId: r.bank_subaccount_id || null,
+  bankResponse: r.bank_response || null,
+})
 
 export const useStore = create<AppState>()((set, get) => ({
   clientes: [],
@@ -91,15 +119,7 @@ export const useStore = create<AppState>()((set, get) => ({
         tipoPersona: r.tipo === 'persona_juridica' ? 'juridica' : 'fisica',
         createdAt: r.created_at,
       })),
-      wallets: (walletsRes.data || []).map((r: any) => ({
-        id: r.id,
-        clienteId: r.cliente_id,
-        cvu: r.cvu || '',
-        alias: r.alias || '',
-        saldo: Number(r.saldo) || 0,
-        estado: r.estado || 'activa',
-        createdAt: r.created_at,
-      })),
+      wallets: (walletsRes.data || []).map(mapWalletRow),
       transferencias: (transferenciasRes.data || []).map((r: any) => ({
         id: r.id,
         originId: r.wallet_origen_id || '',
@@ -147,25 +167,36 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   deleteCliente: async (clienteId) => {
-    const { error } = await supabase
-      .from('clientes')
-      .delete()
-      .eq('id', clienteId)
+    const { error } = await supabase.from('clientes').delete().eq('id', clienteId)
     if (error) throw error
     set((s) => ({ clientes: s.clientes.filter((c) => c.id !== clienteId) }))
   },
 
   addWallet: async (wallet) => {
-    const { error } = await supabase.from('wallets').insert({
-      id: wallet.id,
+    const insertPayload: Record<string, any> = {
       cliente_id: wallet.clienteId,
       cvu: wallet.cvu,
       alias: wallet.alias,
-      saldo: wallet.saldo,
-      estado: wallet.estado,
-    })
+      saldo: wallet.saldo ?? 0,
+      estado: wallet.estado || 'activa',
+      cuit: wallet.cuit ?? null,
+      titular: wallet.titular ?? null,
+      tipo: wallet.tipo ?? null,
+      numero_cuenta: wallet.numeroCuenta ?? null,
+      banco: wallet.banco ?? 'Banco de Comercio',
+      bank_origin_id: wallet.bankOriginId ?? null,
+      bank_subaccount_id: wallet.bankSubaccountId ?? null,
+      bank_response: wallet.bankResponse ?? null,
+    }
+    const { data: row, error } = await supabase
+      .from('wallets')
+      .insert(insertPayload)
+      .select()
+      .single()
     if (error) throw error
-    set((s) => ({ wallets: [wallet, ...s.wallets] }))
+    const nueva = mapWalletRow(row)
+    set((s) => ({ wallets: [nueva, ...s.wallets] }))
+    return nueva
   },
 
   updateWalletEstado: async (id, estado) => {
@@ -222,6 +253,5 @@ export const useStore = create<AppState>()((set, get) => ({
     }))
   },
 
-  clearAll: () =>
-    set({ clientes: [], wallets: [], transferencias: [], movimientos: [] }),
+  clearAll: () => set({ clientes: [], wallets: [], transferencias: [], movimientos: [] }),
 }))
