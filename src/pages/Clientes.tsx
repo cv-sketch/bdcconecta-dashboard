@@ -57,10 +57,11 @@ export default function Clientes() {
     if (!cliente) return
     const yaExiste = wallets.some(w => w.clienteId === clienteId)
     if (yaExiste) {
-      alert('Este cliente ya tiene una wallet')
+      setMsg({ tipo: 'err', texto: 'Este cliente ya tiene una wallet' })
       return
     }
     setLoading(true)
+    setMsg(null)
     try {
       const res = await bdcService.crearWallet({
         originId: clienteId,
@@ -71,11 +72,27 @@ export default function Clientes() {
         tipoPersona: cliente.tipoPersona,
       })
       if (res.ok && res.wallet) {
-        addWallet(res.wallet)
-        alert(`Wallet creada! CVU: ${res.wallet.cvu}`)
+        const nueva = await addWallet({
+          clienteId: clienteId,
+          cvu: res.wallet.cvu,
+          alias: res.wallet.alias,
+          saldo: res.wallet.saldo ?? 0,
+          estado: res.wallet.estado || 'activa',
+          cuit: cliente.cuit,
+          titular: `${cliente.nombre} ${cliente.apellido}`.trim(),
+          tipo: cliente.tipoPersona,
+          numeroCuenta: res.wallet.cvu,
+          banco: 'Banco de Comercio',
+          bankOriginId: null,
+          bankSubaccountId: null,
+          bankResponse: null,
+        })
+        setMsg({ tipo: 'ok', texto: `Wallet creada para ${cliente.nombre} ${cliente.apellido} — CVU: ${nueva.cvu}` })
       } else {
-        alert('Error al crear wallet: ' + res.message)
+        setMsg({ tipo: 'err', texto: 'Error al crear wallet: ' + (res.message || 'desconocido') })
       }
+    } catch (e: any) {
+      setMsg({ tipo: 'err', texto: 'Error al guardar wallet: ' + (e?.message || 'desconocido') })
     } finally {
       setLoading(false)
     }
