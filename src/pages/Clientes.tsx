@@ -18,14 +18,14 @@ export default function Clientes() {
   const filtered = clientes.filter(c =>
     `${c.nombre} ${c.apellido} ${c.cuit} ${c.email}`
       .toLowerCase().includes(search.toLowerCase())
-  )
+  )h
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setMsg(null)
     try {
-      const nuevo = addCliente(form)
+      const nuevo = await addCliente(form)
       setMsg({ tipo: 'ok', texto: `Cliente ${nuevo.nombre} ${nuevo.apellido} creado con ID ${nuevo.id}` })
       setForm(EMPTY_FORM)
       setShowModal(false)
