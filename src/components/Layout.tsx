@@ -1,5 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { signOut, getPerfil, type Perfil } from '../lib/auth'
+import { supabase } from '../lib/supabase'
+import { LogOut, Shield } from 'lucide-react'
 
 const menu = [
   { path: '/', label: 'Dashboard', icon: '📊' },
@@ -13,19 +16,27 @@ export default function Layout({ children }: { children: React.ReactNode }) {
   const navigate = useNavigate()
   const location = useLocation()
   const [collapsed, setCollapsed] = useState(false)
+  const [perfil, setPerfil] = useState<Perfil | null>(null)
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      if (data.session) getPerfil(data.session.user.id).then(setPerfil)
+    })
+  }, [])
+
+  async function handleLogout() {
+    await signOut()
+    navigate('/login')
+  }
+
+  const allMenu = perfil?.rol === 'admin'
+    ? [...menu, { path: '/admin/usuarios', label: 'Usuarios', icon: '🔐' }]
+    : menu
 
   return (
     <div style={{ display: 'flex', height: '100vh', background: '#111827', fontFamily: 'Inter, system-ui, sans-serif' }}>
       {/* Sidebar */}
-      <aside style={{
-        width: collapsed ? 64 : 240,
-        background: '#1F2937',
-        borderRight: '1px solid #374151',
-        display: 'flex',
-        flexDirection: 'column',
-        transition: 'width 0.2s ease',
-        overflow: 'hidden'
-      }}>
+      <aside style={{ width: collapsed ? 64 : 240, background: '#1F2937', borderRight: '1px solid #374151', display: 'flex', flexDirection: 'column', transition: 'width 0.2s ease', overflow: 'hidden' }}>
         {/* Logo */}
         <div style={{ padding: '20px 16px', borderBottom: '1px solid #374151', display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 36, height: 36, background: '#2563EB', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 800, color: '#fff', fontSize: 16, flexShrink: 0 }}>B</div>
@@ -39,24 +50,11 @@ export default function Layout({ children }: { children: React.ReactNode }) {
 
         {/* Nav */}
         <nav style={{ flex: 1, padding: '12px 8px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {menu.map(item => {
+          {allMenu.map(item => {
             const active = location.pathname === item.path
             return (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 12,
-                  padding: collapsed ? '12px' : '10px 12px',
-                  borderRadius: 8, border: 'none', cursor: 'pointer',
-                  background: active ? '#2563EB' : 'transparent',
-                  color: active ? '#fff' : '#9CA3AF',
-                  fontWeight: active ? 600 : 400,
-                  fontSize: 14, textAlign: 'left', width: '100%',
-                  justifyContent: collapsed ? 'center' : 'flex-start',
-                  transition: 'all 0.15s'
-                }}
-              >
+              <button key={item.path} onClick={() => navigate(item.path)}
+                style={{ display: 'flex', alignItems: 'center', gap: 12, padding: collapsed ? '12px' : '10px 12px', borderRadius: 8, border: 'none', cursor: 'pointer', background: active ? '#2563EB' : 'transparent', color: active ? '#fff' : '#9CA3AF', fontWeight: active ? 600 : 400, fontSize: 14, textAlign: 'left', width: '100%', justifyContent: collapsed ? 'center' : 'flex-start', transition: 'all 0.15s' }}>
                 <span style={{ fontSize: 18, flexShrink: 0 }}>{item.icon}</span>
                 {!collapsed && <span>{item.label}</span>}
               </button>
@@ -64,17 +62,20 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        {/* MOCK badge + collapse */}
-        <div style={{ padding: '12px 8px', borderTop: '1px solid #374151' }}>
+        {/* Footer */}
+        <div style={{ padding: '12px 8px', borderTop: '1px solid #374151', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {!collapsed && (
-            <div style={{ background: '#065F46', border: '1px solid #10B981', borderRadius: 6, padding: '6px 10px', marginBottom: 8, textAlign: 'center' }}>
+            <div style={{ background: '#065F46', border: '1px solid #10B981', borderRadius: 6, padding: '6px 10px', textAlign: 'center' }}>
               <span style={{ color: '#10B981', fontSize: 11, fontWeight: 600 }}>🟢 MOCK MODE</span>
             </div>
           )}
-          <button
-            onClick={() => setCollapsed(!collapsed)}
-            style={{ width: '100%', background: '#374151', border: 'none', borderRadius: 6, color: '#9CA3AF', padding: '8px', cursor: 'pointer', fontSize: 16 }}
-          >
+          <button onClick={handleLogout}
+            style={{ width: '100%', background: '#374151', border: 'none', borderRadius: 6, color: '#EF4444', padding: '8px', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: collapsed ? 'center' : 'flex-start', gap: 8 }}>
+            <LogOut size={15} />
+            {!collapsed && 'Cerrar sesión'}
+          </button>
+          <button onClick={() => setCollapsed(!collapsed)}
+            style={{ width: '100%', background: '#374151', border: 'none', borderRadius: 6, color: '#9CA3AF', padding: '8px', cursor: 'pointer', fontSize: 16 }}>
             {collapsed ? '→' : '←'}
           </button>
         </div>
@@ -85,11 +86,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
         {/* Topbar */}
         <div style={{ padding: '16px 24px', borderBottom: '1px solid #374151', background: '#1F2937', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 }}>
           <span style={{ color: '#fff', fontWeight: 600, fontSize: 15 }}>
-            {menu.find(m => m.path === location.pathname)?.icon} {menu.find(m => m.path === location.pathname)?.label || 'Dashboard'}
+            {allMenu.find(m => m.path === location.pathname)?.icon}{' '}
+            {allMenu.find(m => m.path === location.pathname)?.label || 'Dashboard'}
           </span>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             <span style={{ color: '#6B7280', fontSize: 13 }}>🟢 MOCK MODE activo</span>
-            <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700 }}>A</div>
+            {perfil?.rol === 'admin' && (
+              <span style={{ background: '#1D4ED8', color: '#93C5FD', fontSize: 11, fontWeight: 600, padding: '2px 8px', borderRadius: 4, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <Shield size={11} /> ADMIN
+              </span>
+            )}
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'default', title: perfil?.email || '' }}>
+              {perfil?.nombre?.[0]?.toUpperCase() || 'U'}
+            </div>
           </div>
         </div>
 
