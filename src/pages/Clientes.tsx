@@ -18,7 +18,7 @@ export default function Clientes() {
   const filtered = clientes.filter(c =>
     `${c.nombre} ${c.apellido} ${c.cuit} ${c.email}`
       .toLowerCase().includes(search.toLowerCase())
-  )h
+  )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
