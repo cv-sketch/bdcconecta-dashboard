@@ -35,6 +35,7 @@ export interface Transferencia {
   originId: string
   fromWalletId: string
   fromCvu: string
+  fromCuit?: string
   toAddress: string
   toCuit: string
   amount: number
@@ -54,10 +55,14 @@ export interface Movimiento {
   description: string
   estado: string
   referencia?: string
+  saldoAnterior?: number
+  saldoPosterior?: number
+  transferenciaId?: string | null
   createdAt: string
 }
 
 export type WalletInput = Omit<Wallet, 'id' | 'createdAt'> & { id?: string }
+export type MovimientoInput = Omit<Movimiento, 'id' | 'createdAt'> & { createdAt?: string }
 
 interface AppState {
   clientes: Cliente[]
@@ -70,9 +75,9 @@ interface AppState {
   deleteCliente: (clienteId: string) => Promise<void>
   addWallet: (wallet: WalletInput) => Promise<Wallet>
   updateWalletEstado: (id: string, estado: Wallet['estado']) => Promise<void>
-  addTransferencia: (data: Omit<Transferencia, 'id'>) => Promise<Transferencia>
-  addMovimiento: (data: Omit<Movimiento, 'id'>) => Promise<void>
-  updateSaldo: (walletId: string, amount: number, tipo: 'credito' | 'debito') => Promise<void>
+  addTransferencia: (data: Omit<Transferencia, 'id' | 'createdAt'> & { createdAt?: string }) => Promise<Transferencia>
+  addMovimiento: (data: MovimientoInput) => Promise<Movimiento>
+  updateSaldo: (walletId: string, amount: number, tipo: 'credito' | 'debito') => Promise<{ anterior: number; posterior: number }>
   clearAll: () => void
 }
 
@@ -94,6 +99,37 @@ const mapWalletRow = (r: any): Wallet => ({
   bankResponse: r.bank_response || null,
 })
 
+const mapTransferenciaRow = (r: any): Transferencia => ({
+  id: r.id,
+  originId: r.origin_id || '',
+  fromWalletId: r.wallet_origen_id || '',
+  fromCvu: r.from_cvu || '',
+  fromCuit: r.from_cuit || '',
+  toAddress: r.to_address || r.wallet_destino_id || '',
+  toCuit: r.to_cuit || '',
+  amount: Number(r.monto) || 0,
+  concept: r.concepto || r.tipo || '',
+  description: r.descripcion || '',
+  estado: r.estado || 'pendiente',
+  coelsaId: r.coelsa_id || r.referencia || '',
+  createdAt: r.created_at,
+})
+
+const mapMovimientoRow = (r: any): Movimiento => ({
+  id: r.id,
+  walletId: r.wallet_id,
+  cvu: r.cvu || '',
+  tipo: r.tipo,
+  amount: Number(r.monto) || 0,
+  description: r.descripcion || '',
+  estado: r.estado || 'completado',
+  referencia: r.referencia || undefined,
+  saldoAnterior: r.saldo_anterior != null ? Number(r.saldo_anterior) : undefined,
+  saldoPosterior: r.saldo_posterior != null ? Number(r.saldo_posterior) : undefined,
+  transferenciaId: r.transferencia_id || null,
+  createdAt: r.created_at,
+})
+
 export const useStore = create<AppState>()((set, get) => ({
   clientes: [],
   wallets: [],
@@ -103,10 +139,11 @@ export const useStore = create<AppState>()((set, get) => ({
 
   loadAll: async () => {
     set({ loading: true })
-    const [clientesRes, walletsRes, transferenciasRes] = await Promise.all([
+    const [clientesRes, walletsRes, transferenciasRes, movimientosRes] = await Promise.all([
       supabase.from('clientes').select('*').order('created_at', { ascending: false }),
       supabase.from('wallets').select('*').order('created_at', { ascending: false }),
       supabase.from('transferencias').select('*').order('created_at', { ascending: false }),
+      supabase.from('movimientos').select('*').order('created_at', { ascending: false }),
     ])
     set({
       clientes: (clientesRes.data || []).map((r: any) => ({
@@ -120,20 +157,8 @@ export const useStore = create<AppState>()((set, get) => ({
         createdAt: r.created_at,
       })),
       wallets: (walletsRes.data || []).map(mapWalletRow),
-      transferencias: (transferenciasRes.data || []).map((r: any) => ({
-        id: r.id,
-        originId: r.wallet_origen_id || '',
-        fromWalletId: r.wallet_origen_id || '',
-        fromCvu: '',
-        toAddress: r.wallet_destino_id || '',
-        toCuit: '',
-        amount: Number(r.monto) || 0,
-        concept: r.tipo || '',
-        description: r.descripcion || '',
-        estado: r.estado || 'pendiente',
-        coelsaId: r.referencia || '',
-        createdAt: r.created_at,
-      })),
+      transferencias: (transferenciasRes.data || []).map(mapTransferenciaRow),
+      movimientos: (movimientosRes.data || []).map(mapMovimientoRow),
       loading: false,
     })
   },
@@ -208,50 +233,76 @@ export const useStore = create<AppState>()((set, get) => ({
   },
 
   addTransferencia: async (data) => {
+    // Si el destino (toAddress) coincide con una wallet del sistema, guardamos su id como wallet_destino_id
+    const walletDestino = get().wallets.find(
+      (w) => w.cvu === data.toAddress || w.alias === data.toAddress
+    )
     const { data: row, error } = await supabase
       .from('transferencias')
       .insert({
+        origin_id: data.originId || null,
         wallet_origen_id: data.fromWalletId || null,
-        wallet_destino_id: data.toAddress || null,
+        wallet_destino_id: walletDestino?.id || null,
+        from_cvu: data.fromCvu || null,
+        from_cuit: data.fromCuit || null,
+        to_address: data.toAddress || null,
+        to_cuit: data.toCuit || null,
         monto: data.amount,
         moneda: 'ARS',
-        descripcion: data.description || data.concept,
+        concepto: data.concept || null,
+        descripcion: data.description || null,
+        coelsa_id: data.coelsaId || null,
         referencia: data.coelsaId || null,
         estado: data.estado,
-        tipo: data.concept,
+        tipo: data.concept || null,
       })
       .select()
       .single()
     if (error) throw error
-    const nueva: Transferencia = {
-      ...data,
-      id: row.id,
-      createdAt: row.created_at,
-    }
+    const nueva = mapTransferenciaRow(row)
     set((s) => ({ transferencias: [nueva, ...s.transferencias] }))
     return nueva
   },
 
   addMovimiento: async (data) => {
-    const nuevo: Movimiento = {
-      ...data,
-      id: 'mov-' + Math.random().toString(36).slice(2, 10),
-    }
+    const { data: row, error } = await supabase
+      .from('movimientos')
+      .insert({
+        wallet_id: data.walletId,
+        cvu: data.cvu || null,
+        tipo: data.tipo,
+        monto: data.amount,
+        saldo_anterior: data.saldoAnterior ?? null,
+        saldo_posterior: data.saldoPosterior ?? null,
+        descripcion: data.description || null,
+        estado: data.estado || 'completado',
+        referencia: data.referencia || null,
+        transferencia_id: data.transferenciaId || null,
+      })
+      .select()
+      .single()
+    if (error) throw error
+    const nuevo = mapMovimientoRow(row)
     set((s) => ({ movimientos: [nuevo, ...s.movimientos] }))
+    return nuevo
   },
 
   updateSaldo: async (walletId, amount, tipo) => {
     const wallet = get().wallets.find((w) => w.id === walletId)
-    if (!wallet) return
-    const nuevoSaldo = tipo === 'credito' ? wallet.saldo + amount : wallet.saldo - amount
-    const { error } = await supabase.from('wallets').update({ saldo: nuevoSaldo }).eq('id', walletId)
+    if (!wallet) throw new Error('Wallet no encontrada')
+    const anterior = wallet.saldo
+    const posterior = tipo === 'credito' ? anterior + amount : anterior - amount
+    const { error } = await supabase
+      .from('wallets')
+      .update({ saldo: posterior })
+      .eq('id', walletId)
     if (error) throw error
     set((s) => ({
-      wallets: s.wallets.map((w) =>
-        w.id !== walletId ? w : { ...w, saldo: nuevoSaldo }
-      ),
+      wallets: s.wallets.map((w) => (w.id !== walletId ? w : { ...w, saldo: posterior })),
     }))
+    return { anterior, posterior }
   },
 
-  clearAll: () => set({ clientes: [], wallets: [], transferencias: [], movimientos: [] }),
+  clearAll: () =>
+    set({ clientes: [], wallets: [], transferencias: [], movimientos: [] }),
 }))
