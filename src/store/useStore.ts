@@ -122,7 +122,6 @@ export const useStore = create<AppState>()((set, get) => ({
       .from('clientes')
       .insert({
         nombre: data.nombre,
-        apellido: data.apellido,
         cuit: data.cuit,
         email: data.email,
         telefono: data.telefono,
