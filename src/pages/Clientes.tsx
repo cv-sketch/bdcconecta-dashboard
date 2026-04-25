@@ -3,21 +3,27 @@ import { useStore } from '../store/useStore'
 import { bdcService } from '../services/bdcService'
 
 const EMPTY_FORM = {
-  nombre: '', apellido: '', cuit: '', email: '',
-  telefono: '', tipoPersona: 'fisica' as 'fisica' | 'juridica'
+  nombre: '',
+  apellido: '',
+  cuit: '',
+  email: '',
+  telefono: '',
+  tipoPersona: 'fisica' as 'fisica' | 'juridica',
 }
 
 export default function Clientes() {
-  const { clientes, addCliente, wallets, addWallet } = useStore()
+  const { clientes, addCliente, deleteCliente, wallets, addWallet } = useStore()
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
+  const [clienteAEliminar, setClienteAEliminar] = useState<string | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
 
   const filtered = clientes.filter(c =>
     `${c.nombre} ${c.apellido} ${c.cuit} ${c.email}`
-      .toLowerCase().includes(search.toLowerCase())
+      .toLowerCase()
+      .includes(search.toLowerCase())
   )
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -36,14 +42,34 @@ export default function Clientes() {
     }
   }
 
+  const handleEliminar = async (clienteId: string) => {
+    try {
+      await deleteCliente(clienteId)
+      setMsg({ tipo: 'ok', texto: 'Cliente eliminado correctamente' })
+    } catch {
+      setMsg({ tipo: 'err', texto: 'Error al eliminar el cliente' })
+    }
+    setClienteAEliminar(null)
+  }
+
   const crearWallet = async (clienteId: string) => {
     const cliente = clientes.find(c => c.id === clienteId)
     if (!cliente) return
     const yaExiste = wallets.some(w => w.clienteId === clienteId)
-    if (yaExiste) { alert('Este cliente ya tiene una wallet'); return }
+    if (yaExiste) {
+      alert('Este cliente ya tiene una wallet')
+      return
+    }
     setLoading(true)
     try {
-      const res = await bdcService.crearWallet({ originId: clienteId, cuit: cliente.cuit, nombre: cliente.nombre, apellido: cliente.apellido, email: cliente.email, tipoPersona: cliente.tipoPersona })
+      const res = await bdcService.crearWallet({
+        originId: clienteId,
+        cuit: cliente.cuit,
+        nombre: cliente.nombre,
+        apellido: cliente.apellido,
+        email: cliente.email,
+        tipoPersona: cliente.tipoPersona,
+      })
       if (res.ok && res.wallet) {
         addWallet(res.wallet)
         alert(`Wallet creada! CVU: ${res.wallet.cvu}`)
@@ -65,14 +91,19 @@ export default function Clientes() {
           <h1 style={{ fontSize: 24, fontWeight: 700, color: '#fff', margin: 0 }}>Clientes</h1>
           <p style={{ color: '#6B7280', margin: '4px 0 0' }}>{clientes.length} clientes registrados</p>
         </div>
-        <button onClick={() => setShowModal(true)} style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}>
-          + Nuevo Cliente
-        </button>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <button
+            onClick={() => setShowModal(true)}
+            style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', fontWeight: 600, cursor: 'pointer', fontSize: 14 }}
+          >
+            + Nuevo Cliente
+          </button>
+        </div>
       </div>
 
       {/* Mensaje */}
       {msg && (
-        <div style={{ background: msg.tipo === 'ok' ? '#065F46' : '#7F1D1D', border: `1px solid ${msg.tipo === 'ok' ? '#10B981' : '#EF4444'}`, borderRadius: 8, padding: '12px 16px', marginBottom: 16, color: msg.tipo === 'ok' ? '#10B981' : '#EF4444' }}>
+        <div style={{ background: msg.tipo === 'ok' ? '#065F46' : '#7F1D1D', border: `1px solid ${msg.tipo === 'ok' ? '#10B981' : '#EF4444'}`, borderRadius: 8, padding: '12px 16px', marginBottom: 16, color: '#fff' }}>
           {msg.texto}
         </div>
       )}
@@ -116,9 +147,9 @@ export default function Clientes() {
                 </td>
                 <td style={{ padding: '12px 16px', color: '#D1D5DB', fontFamily: 'monospace' }}>{c.cuit}</td>
                 <td style={{ padding: '12px 16px', color: '#D1D5DB' }}>{c.email}</td>
-                <td style={{ padding: '12px 16px', color: '#D1D5DB' }}>{c.telefono || '—'}</td>
+                <td style={{ padding: '12px 16px', color: '#D1D5DB' }}>{c.telefono || '-'}</td>
                 <td style={{ padding: '12px 16px' }}>
-                  <span style={{ background: c.tipoPersona === 'juridica' ? '#1E3A5F' : '#1A2E1A', color: c.tipoPersona === 'juridica' ? '#60A5FA' : '#4ADE80', borderRadius: 20, padding: '3px 10px', fontSize: 12 }}>
+                  <span style={{ background: c.tipoPersona === 'juridica' ? '#1E3A5F' : '#1A2E1A', color: c.tipoPersona === 'juridica' ? '#60A5FA' : '#4ADE80', borderRadius: 12, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>
                     {c.tipoPersona === 'juridica' ? 'Jurídica' : 'Física'}
                   </span>
                 </td>
@@ -128,17 +159,57 @@ export default function Clientes() {
                     : <span style={{ color: '#6B7280', fontSize: 13 }}>Sin wallet</span>}
                 </td>
                 <td style={{ padding: '12px 16px' }}>
-                  {!tieneWallet(c.id) && (
-                    <button onClick={() => crearWallet(c.id)} disabled={loading} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 600 }}>
-                      + Wallet
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    {!tieneWallet(c.id) && (
+                      <button onClick={() => crearWallet(c.id)} disabled={loading} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
+                        + Wallet
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setClienteAEliminar(c.id)}
+                      style={{ background: '#DC2626', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}
+                    >
+                      Eliminar
                     </button>
-                  )}
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+
+      {/* Modal confirmar eliminar */}
+      {clienteAEliminar && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#1F2937', borderRadius: 12, padding: 32, width: 400, maxWidth: '90vw', border: '1px solid #374151' }}>
+            <h2 style={{ color: '#fff', margin: '0 0 12px', fontSize: 20, fontWeight: 700 }}>Confirmar eliminación</h2>
+            <p style={{ color: '#9CA3AF', marginBottom: 24 }}>
+              ¿Estás seguro que querés eliminar al cliente{' '}
+              <strong style={{ color: '#fff' }}>
+                {clientes.find(c => c.id === clienteAEliminar)?.nombre} {clientes.find(c => c.id === clienteAEliminar)?.apellido}
+              </strong>? Esta acción no se puede deshacer.
+            </p>
+            <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                onClick={() => setClienteAEliminar(null)}
+                style={{ background: '#374151', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600 }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => handleEliminar(clienteAEliminar)}
+                disabled={loading}
+                style={{ background: '#DC2626', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600 }}
+              >
+                Eliminar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal nuevo cliente */}
       {showModal && (
@@ -158,32 +229,40 @@ export default function Clientes() {
                     <label style={{ display: 'block', color: '#9CA3AF', fontSize: 13, marginBottom: 4 }}>{f.label}</label>
                     <input
                       type="text"
+                      value={(form as any)[f.key] || ''}
+                      onChange={e => setForm({ ...form, [f.key]: e.target.value })}
                       placeholder={f.placeholder}
-                      value={(form as any)[f.key]}
-                      onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))}
                       required={f.key !== 'telefono'}
-                      style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '8px 12px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
+                      style={{ width: '100%', padding: '10px 12px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
                     />
                   </div>
                 ))}
                 <div style={{ gridColumn: '1 / -1' }}>
-                  <label style={{ display: 'block', color: '#9CA3AF', fontSize: 13, marginBottom: 4 }}>Tipo de Persona</label>
+                  <label style={{ display: 'block', color: '#9CA3AF', fontSize: 13, marginBottom: 4 }}>Tipo de persona</label>
                   <select
                     value={form.tipoPersona}
-                    onChange={e => setForm(p => ({ ...p, tipoPersona: e.target.value as any }))}
-                    style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '8px 12px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
+                    onChange={e => setForm({ ...form, tipoPersona: e.target.value as 'fisica' | 'juridica' })}
+                    style={{ width: '100%', padding: '10px 12px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
                   >
-                    <option value="fisica">Persona Física</option>
-                    <option value="juridica">Persona Jurídica</option>
+                    <option value="fisica">Física</option>
+                    <option value="juridica">Jurídica</option>
                   </select>
                 </div>
               </div>
-              <div style={{ display: 'flex', gap: 12, marginTop: 24, justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => { setShowModal(false); setForm(EMPTY_FORM) }} style={{ background: '#374151', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600 }}>
+              <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', marginTop: 24 }}>
+                <button
+                  type="button"
+                  onClick={() => { setShowModal(false); setForm(EMPTY_FORM) }}
+                  style={{ background: '#374151', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600 }}
+                >
                   Cancelar
                 </button>
-                <button type="submit" disabled={loading} style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600 }}>
-                  {loading ? 'Creando...' : 'Crear Cliente'}
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 20px', cursor: 'pointer', fontWeight: 600 }}
+                >
+                  {loading ? 'Guardando...' : 'Guardar'}
                 </button>
               </div>
             </form>

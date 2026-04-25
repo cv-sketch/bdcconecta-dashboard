@@ -57,6 +57,7 @@ interface AppState {
   loading: boolean
   loadAll: () => Promise<void>
   addCliente: (data: Omit<Cliente, 'id' | 'createdAt'>) => Promise<Cliente>
+  deleteCliente: (clienteId: string) => Promise<void>
   addWallet: (wallet: Wallet) => Promise<void>
   updateWalletEstado: (id: string, estado: Wallet['estado']) => Promise<void>
   addTransferencia: (data: Omit<Transferencia, 'id'>) => Promise<Transferencia>
@@ -80,7 +81,7 @@ export const useStore = create<AppState>()((set, get) => ({
       supabase.from('transferencias').select('*').order('created_at', { ascending: false }),
     ])
     set({
-      clientes: (clientesRes.data || []).map((r) => ({
+      clientes: (clientesRes.data || []).map((r: any) => ({
         id: r.id,
         nombre: r.nombre,
         apellido: r.apellido || '',
@@ -90,7 +91,7 @@ export const useStore = create<AppState>()((set, get) => ({
         tipoPersona: r.tipo === 'persona_juridica' ? 'juridica' : 'fisica',
         createdAt: r.created_at,
       })),
-      wallets: (walletsRes.data || []).map((r) => ({
+      wallets: (walletsRes.data || []).map((r: any) => ({
         id: r.id,
         clienteId: r.cliente_id,
         cvu: r.cvu || '',
@@ -99,7 +100,7 @@ export const useStore = create<AppState>()((set, get) => ({
         estado: r.estado || 'activa',
         createdAt: r.created_at,
       })),
-      transferencias: (transferenciasRes.data || []).map((r) => ({
+      transferencias: (transferenciasRes.data || []).map((r: any) => ({
         id: r.id,
         originId: r.wallet_origen_id || '',
         fromWalletId: r.wallet_origen_id || '',
@@ -143,6 +144,15 @@ export const useStore = create<AppState>()((set, get) => ({
     }
     set((s) => ({ clientes: [nuevo, ...s.clientes] }))
     return nuevo
+  },
+
+  deleteCliente: async (clienteId) => {
+    const { error } = await supabase
+      .from('clientes')
+      .delete()
+      .eq('id', clienteId)
+    if (error) throw error
+    set((s) => ({ clientes: s.clientes.filter((c) => c.id !== clienteId) }))
   },
 
   addWallet: async (wallet) => {
