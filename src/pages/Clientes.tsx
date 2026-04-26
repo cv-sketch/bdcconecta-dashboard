@@ -1,8 +1,6 @@
 import { useState } from 'react'
 import { useStore } from '../store/useStore'
-import type { Comprobante } from '../store/useStore'
 import { bdcService } from '../services/bdcService'
-import ComprobanteModal from '../components/ComprobanteModal'
 
 const EMPTY_FORM = {
   nombre: '',
@@ -13,26 +11,18 @@ const EMPTY_FORM = {
   tipoPersona: 'fisica' as 'fisica' | 'juridica',
 }
 
-const fmtMoney = (n: number) =>
-  new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 }).format(n)
-
 export default function Clientes() {
-  const { clientes, addCliente, deleteCliente, wallets, addWallet, comprobantes } = useStore()
+  const { clientes, addCliente, deleteCliente, wallets, addWallet } = useStore()
   const [search, setSearch] = useState('')
   const [showModal, setShowModal] = useState(false)
   const [clienteAEliminar, setClienteAEliminar] = useState<string | null>(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
-  const [comprobantesCliente, setComprobantesCliente] = useState<{ clienteId: string; lista: Comprobante[] } | null>(null)
-  const [comprobanteActivo, setComprobanteActivo] = useState<Comprobante | null>(null)
 
   const filtered = clientes.filter((c) =>
     `${c.nombre} ${c.apellido} ${c.cuit} ${c.email}`.toLowerCase().includes(search.toLowerCase())
   )
-
-  const comprobantesDeCliente = (clienteId: string) =>
-    comprobantes.filter((co) => co.clienteId === clienteId)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -85,7 +75,7 @@ export default function Clientes() {
           cvu: res.wallet.cvu,
           alias: res.wallet.alias,
           saldo: res.wallet.saldo ?? 0,
-          estado: res.wallet.estado || 'activa',
+          estado: (res.wallet.estado || 'activa') as 'activa' | 'suspendida' | 'bloqueada' | 'inactiva' | 'pendiente',
           cuit: cliente.cuit,
           titular: `${cliente.nombre} ${cliente.apellido}`.trim(),
           tipo: cliente.tipoPersona,
@@ -107,15 +97,6 @@ export default function Clientes() {
   }
 
   const tieneWallet = (clienteId: string) => wallets.some((w) => w.clienteId === clienteId)
-
-  const abrirComprobantesCliente = (clienteId: string) => {
-    const lista = comprobantesDeCliente(clienteId)
-    setComprobantesCliente({ clienteId, lista })
-  }
-
-  const clienteListado = comprobantesCliente
-    ? clientes.find((c) => c.id === comprobantesCliente.clienteId)
-    : null
 
   return (
     <div>
@@ -141,7 +122,13 @@ export default function Clientes() {
 
       {/* Buscador */}
       <div style={{ background: '#1F2937', borderRadius: 8, padding: 16, marginBottom: 16 }}>
-        <input type="text" placeholder="Buscar por nombre, CUIT o email..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '10px 14px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }} />
+        <input
+          type="text"
+          placeholder="Buscar por nombre, CUIT o email..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '10px 14px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
+        />
       </div>
 
       {/* Tabla */}
@@ -157,46 +144,42 @@ export default function Clientes() {
           <tbody>
             {filtered.length === 0 ? (
               <tr><td colSpan={7} style={{ padding: 32, textAlign: 'center', color: '#6B7280' }}>No hay clientes. Creá el primero con "+ Nuevo Cliente"</td></tr>
-            ) : filtered.map((c, i) => {
-              const cantComp = comprobantesDeCliente(c.id).length
-              return (
-                <tr key={c.id} style={{ borderBottom: '1px solid #374151', background: i % 2 === 0 ? 'transparent' : '#111827' }}>
-                  <td style={{ padding: '12px 16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                      <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#fff', fontSize: 14 }}>
-                        {c.nombre[0]}{c.apellido[0]}
-                      </div>
-                      <div>
-                        <div style={{ color: '#fff', fontWeight: 600 }}>{c.nombre} {c.apellido}</div>
-                        <div style={{ color: '#6B7280', fontSize: 12 }}>ID: {c.id.slice(0, 8)}...</div>
-                      </div>
+            ) : filtered.map((c, i) => (
+              <tr key={c.id} style={{ borderBottom: '1px solid #374151', background: i % 2 === 0 ? 'transparent' : '#111827' }}>
+                <td style={{ padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 36, height: 36, borderRadius: '50%', background: '#2563EB', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, color: '#fff', fontSize: 14 }}>
+                      {c.nombre[0]}{c.apellido[0]}
                     </div>
-                  </td>
-                  <td style={{ padding: '12px 16px', color: '#D1D5DB', fontFamily: 'monospace' }}>{c.cuit}</td>
-                  <td style={{ padding: '12px 16px', color: '#D1D5DB' }}>{c.email}</td>
-                  <td style={{ padding: '12px 16px', color: '#D1D5DB' }}>{c.telefono || '-'}</td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <span style={{ background: c.tipoPersona === 'juridica' ? '#1E3A5F' : '#1A2E1A', color: c.tipoPersona === 'juridica' ? '#60A5FA' : '#4ADE80', borderRadius: 12, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>
-                      {c.tipoPersona === 'juridica' ? 'Jurídica' : 'Física'}
-                    </span>
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    {tieneWallet(c.id) ? <span style={{ color: '#10B981', fontSize: 13 }}>✓ Activa</span> : <span style={{ color: '#6B7280', fontSize: 13 }}>Sin wallet</span>}
-                  </td>
-                  <td style={{ padding: '12px 16px' }}>
-                    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                      {!tieneWallet(c.id) && (
-                        <button onClick={() => crearWallet(c.id)} disabled={loading} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>+ Wallet</button>
-                      )}
-                      <button onClick={() => abrirComprobantesCliente(c.id)} style={{ background: '#1E3A5F', color: '#60A5FA', border: '1px solid #2563EB', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>
-                        📄 Comprobantes{cantComp > 0 ? ` (${cantComp})` : ''}
-                      </button>
-                      <button onClick={() => setClienteAEliminar(c.id)} style={{ background: '#DC2626', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Eliminar</button>
+                    <div>
+                      <div style={{ color: '#fff', fontWeight: 600 }}>{c.nombre} {c.apellido}</div>
+                      <div style={{ color: '#6B7280', fontSize: 12 }}>ID: {c.id.slice(0, 8)}...</div>
                     </div>
-                  </td>
-                </tr>
-              )
-            })}
+                  </div>
+                </td>
+                <td style={{ padding: '12px 16px', color: '#D1D5DB', fontFamily: 'monospace' }}>{c.cuit}</td>
+                <td style={{ padding: '12px 16px', color: '#D1D5DB' }}>{c.email}</td>
+                <td style={{ padding: '12px 16px', color: '#D1D5DB' }}>{c.telefono || '-'}</td>
+                <td style={{ padding: '12px 16px' }}>
+                  <span style={{ background: c.tipoPersona === 'juridica' ? '#1E3A5F' : '#1A2E1A', color: c.tipoPersona === 'juridica' ? '#60A5FA' : '#4ADE80', borderRadius: 12, padding: '2px 10px', fontSize: 12, fontWeight: 600 }}>
+                    {c.tipoPersona === 'juridica' ? 'Jurídica' : 'Física'}
+                  </span>
+                </td>
+                <td style={{ padding: '12px 16px' }}>
+                  {tieneWallet(c.id)
+                    ? <span style={{ color: '#10B981', fontSize: 13 }}>✓ Activa</span>
+                    : <span style={{ color: '#6B7280', fontSize: 13 }}>Sin wallet</span>}
+                </td>
+                <td style={{ padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {!tieneWallet(c.id) && (
+                      <button onClick={() => crearWallet(c.id)} disabled={loading} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>+ Wallet</button>
+                    )}
+                    <button onClick={() => setClienteAEliminar(c.id)} style={{ background: '#DC2626', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 14px', cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Eliminar</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
@@ -236,7 +219,14 @@ export default function Clientes() {
                 ].map((f) => (
                   <div key={f.key} style={{ gridColumn: f.key === 'email' ? '1 / -1' : undefined }}>
                     <label style={{ display: 'block', color: '#9CA3AF', fontSize: 13, marginBottom: 4 }}>{f.label}</label>
-                    <input type="text" value={(form as any)[f.key] || ''} onChange={(e) => setForm({ ...form, [f.key]: e.target.value })} placeholder={f.placeholder} required={f.key !== 'telefono'} style={{ width: '100%', padding: '10px 12px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box' }} />
+                    <input
+                      type="text"
+                      value={(form as any)[f.key] || ''}
+                      onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                      placeholder={f.placeholder}
+                      required={f.key !== 'telefono'}
+                      style={{ width: '100%', padding: '10px 12px', background: '#111827', border: '1px solid #374151', borderRadius: 8, color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
+                    />
                   </div>
                 ))}
                 <div style={{ gridColumn: '1 / -1' }}>
@@ -257,61 +247,6 @@ export default function Clientes() {
           </div>
         </div>
       )}
-
-      {/* Modal lista de comprobantes del cliente */}
-      {comprobantesCliente && (
-        <div onClick={() => setComprobantesCliente(null)} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999, padding: 16 }}>
-          <div onClick={(e) => e.stopPropagation()} style={{ background: '#1F2937', borderRadius: 12, padding: 28, width: 720, maxWidth: '95vw', maxHeight: '85vh', overflowY: 'auto', border: '1px solid #374151' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div>
-                <h2 style={{ color: '#fff', margin: 0, fontSize: 20, fontWeight: 700 }}>Historial de comprobantes</h2>
-                <p style={{ color: '#9CA3AF', margin: '4px 0 0', fontSize: 13 }}>
-                  {clienteListado ? `${clienteListado.nombre} ${clienteListado.apellido} — CUIT ${clienteListado.cuit}` : ''}
-                </p>
-              </div>
-              <button onClick={() => setComprobantesCliente(null)} style={{ background: 'none', border: 'none', color: '#9CA3AF', fontSize: 22, cursor: 'pointer' }}>×</button>
-            </div>
-
-            {comprobantesCliente.lista.length === 0 ? (
-              <div style={{ color: '#6B7280', textAlign: 'center', padding: 40 }}>
-                Este cliente aún no realizó transferencias salientes. Cuando lo haga, sus comprobantes aparecerán aquí.
-              </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #374151' }}>
-                    {['N°', 'Fecha', 'Destino', 'Monto', 'Concepto', 'ID Coelsa', ''].map((h) => (
-                      <th key={h} style={{ padding: '10px 12px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {comprobantesCliente.lista.map((co, i) => (
-                    <tr key={co.id} style={{ borderBottom: '1px solid #374151', background: i % 2 === 0 ? 'transparent' : '#111827' }}>
-                      <td style={{ padding: '10px 12px', color: '#D1D5DB', fontFamily: 'monospace', fontSize: 12 }}>{co.numero}</td>
-                      <td style={{ padding: '10px 12px', color: '#9CA3AF', fontSize: 13 }}>{new Date(co.createdAt).toLocaleString('es-AR')}</td>
-                      <td style={{ padding: '10px 12px', color: '#D1D5DB', fontSize: 13 }}>
-                        <div>{co.titularDestino || '—'}</div>
-                        <div style={{ color: '#6B7280', fontFamily: 'monospace', fontSize: 11 }}>{(co.cvuDestino || '').slice(0, 14)}...</div>
-                      </td>
-                      <td style={{ padding: '10px 12px', color: '#EF4444', fontWeight: 700 }}>-{fmtMoney(co.monto)}</td>
-                      <td style={{ padding: '10px 12px', color: '#9CA3AF', fontSize: 13 }}>{co.concepto}</td>
-                      <td style={{ padding: '10px 12px', color: '#6B7280', fontFamily: 'monospace', fontSize: 11 }}>{co.coelsaId || '—'}</td>
-                      <td style={{ padding: '10px 12px' }}>
-                        <button onClick={() => setComprobanteActivo(co)} style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 6, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                          Ver
-                        </button>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
-          </div>
-        </div>
-      )}
-
-      <ComprobanteModal comprobante={comprobanteActivo} onClose={() => setComprobanteActivo(null)} />
     </div>
   )
 }

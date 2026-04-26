@@ -1,20 +1,36 @@
 import { useState } from 'react'
 import { useStore } from '../store/useStore'
+import type { Comprobante, Movimiento } from '../store/useStore'
 import { bdcService } from '../services/bdcService'
+import ComprobanteModal from '../components/ComprobanteModal'
 
 export default function Movimientos() {
-  const { wallets, clientes, movimientos, addMovimiento } = useStore()
+  const { wallets, clientes, movimientos, comprobantes, addMovimiento } = useStore()
   const [walletSeleccionada, setWalletSeleccionada] = useState('')
   const [loading, setLoading] = useState(false)
   const [msg, setMsg] = useState<{ tipo: 'ok' | 'err'; texto: string } | null>(null)
   const [filtroTipo, setFiltroTipo] = useState<'todos' | 'credito' | 'debito'>('todos')
   const [showSimular, setShowSimular] = useState(false)
   const [simForm, setSimForm] = useState({ amount: '', tipo: 'credito', description: '' })
+  const [comprobanteActivo, setComprobanteActivo] = useState<Comprobante | null>(null)
 
-  const getCliente = (clienteId: string) =>
-    clientes.find(c => c.id === clienteId)
-
+  const getCliente = (clienteId: string) => clientes.find(c => c.id === clienteId)
   const wallet = wallets.find(w => w.id === walletSeleccionada)
+
+  // REGLA: el comprobante existe SOLO para operaciones SALIENTES (débitos).
+  // Match preferente por transferenciaId; fallback por referencia <-> coelsaId/originId.
+  const findComprobante = (m: Movimiento): Comprobante | null => {
+    if (m.tipo !== 'debito') return null
+    if (m.transferenciaId) {
+      const byTrx = comprobantes.find(c => c.transferenciaId === m.transferenciaId)
+      if (byTrx) return byTrx
+    }
+    if (m.referencia) {
+      const byRef = comprobantes.find(c => c.coelsaId === m.referencia || c.originId === m.referencia)
+      if (byRef) return byRef
+    }
+    return null
+  }
 
   const movimientosFiltrados = movimientos
     .filter(m => walletSeleccionada ? m.walletId === walletSeleccionada : true)
@@ -72,17 +88,10 @@ export default function Movimientos() {
         </div>
         {walletSeleccionada && (
           <div style={{ display: 'flex', gap: 8 }}>
-            <button
-              onClick={() => setShowSimular(true)}
-              style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}
-            >
+            <button onClick={() => setShowSimular(true)} style={{ background: '#059669', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>
               + Simular Movimiento
             </button>
-            <button
-              onClick={consultarMovimientos}
-              disabled={loading}
-              style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}
-            >
+            <button onClick={consultarMovimientos} disabled={loading} style={{ background: '#2563EB', color: '#fff', border: 'none', borderRadius: 8, padding: '10px 16px', fontWeight: 600, cursor: 'pointer', fontSize: 13 }}>
               {loading ? '⏳ Cargando...' : '🔄 Actualizar'}
             </button>
           </div>
@@ -100,11 +109,7 @@ export default function Movimientos() {
       {/* Selector de wallet */}
       <div style={{ background: '#1F2937', borderRadius: 10, padding: 20, marginBottom: 20, border: '1px solid #374151' }}>
         <label style={{ display: 'block', color: '#9CA3AF', fontSize: 13, marginBottom: 8, fontWeight: 600 }}>SELECCIONAR CUENTA / WALLET</label>
-        <select
-          value={walletSeleccionada}
-          onChange={e => { setWalletSeleccionada(e.target.value); setMsg(null) }}
-          style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '10px 14px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
-        >
+        <select value={walletSeleccionada} onChange={e => { setWalletSeleccionada(e.target.value); setMsg(null) }} style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '10px 14px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}>
           <option value="">— Ver todos los movimientos —</option>
           {wallets.map(w => {
             const c = getCliente(w.clienteId)
@@ -116,7 +121,6 @@ export default function Movimientos() {
           })}
         </select>
 
-        {/* Info de wallet seleccionada */}
         {wallet && (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginTop: 16 }}>
             {[
@@ -135,24 +139,14 @@ export default function Movimientos() {
 
       {/* Filtros + KPIs */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, gap: 16, flexWrap: 'wrap' }}>
-        {/* Filtros tipo */}
         <div style={{ display: 'flex', gap: 8, background: '#1F2937', padding: 4, borderRadius: 8 }}>
           {(['todos', 'credito', 'debito'] as const).map(f => (
-            <button
-              key={f}
-              onClick={() => setFiltroTipo(f)}
-              style={{
-                padding: '6px 16px', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600,
-                background: filtroTipo === f ? (f === 'credito' ? '#065F46' : f === 'debito' ? '#7F1D1D' : '#2563EB') : 'transparent',
-                color: filtroTipo === f ? (f === 'credito' ? '#10B981' : f === 'debito' ? '#EF4444' : '#fff') : '#6B7280'
-              }}
-            >
+            <button key={f} onClick={() => setFiltroTipo(f)} style={{ padding: '6px 16px', border: 'none', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600, background: filtroTipo === f ? (f === 'credito' ? '#065F46' : f === 'debito' ? '#7F1D1D' : '#2563EB') : 'transparent', color: filtroTipo === f ? (f === 'credito' ? '#10B981' : f === 'debito' ? '#EF4444' : '#fff') : '#6B7280' }}>
               {f === 'todos' ? 'Todos' : f === 'credito' ? '↑ Créditos' : '↓ Débitos'}
             </button>
           ))}
         </div>
 
-        {/* Mini KPIs */}
         <div style={{ display: 'flex', gap: 12 }}>
           <div style={{ background: '#065F46', borderRadius: 8, padding: '8px 16px', textAlign: 'center' }}>
             <div style={{ color: '#6EE7B7', fontSize: 11 }}>CRÉDITOS</div>
@@ -176,7 +170,7 @@ export default function Movimientos() {
         <table style={{ width: '100%', borderCollapse: 'collapse' }}>
           <thead>
             <tr style={{ borderBottom: '1px solid #374151' }}>
-              {['Fecha', 'Tipo', 'Descripción', 'Referencia', 'CVU', 'Monto', 'Estado'].map(h => (
+              {['Fecha', 'Tipo', 'Descripción', 'Referencia', 'CVU', 'Monto', 'Estado', 'Comprobante'].map(h => (
                 <th key={h} style={{ padding: '12px 16px', textAlign: 'left', fontSize: 12, fontWeight: 600, color: '#9CA3AF', textTransform: 'uppercase' }}>{h}</th>
               ))}
             </tr>
@@ -184,36 +178,44 @@ export default function Movimientos() {
           <tbody>
             {movimientosFiltrados.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ padding: 48, textAlign: 'center', color: '#6B7280' }}>
+                <td colSpan={8} style={{ padding: 48, textAlign: 'center', color: '#6B7280' }}>
                   <div style={{ fontSize: 40, marginBottom: 12 }}>📊</div>
                   <div>{walletSeleccionada ? 'Sin movimientos para esta wallet. Usá "Simular Movimiento" o "Actualizar".' : 'Seleccioná una wallet o generá movimientos desde Transferencias.'}</div>
                 </td>
               </tr>
-            ) : movimientosFiltrados.map((m, i) => (
-              <tr key={m.id} style={{ borderBottom: '1px solid #374151', background: i % 2 === 0 ? 'transparent' : '#111827' }}>
-                <td style={{ padding: '12px 16px', color: '#9CA3AF', fontSize: 13 }}>
-                  {new Date(m.createdAt).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
-                </td>
-                <td style={{ padding: '12px 16px' }}>
-                  <span style={{
-                    background: m.tipo === 'credito' ? '#065F46' : '#7F1D1D',
-                    color: m.tipo === 'credito' ? '#10B981' : '#EF4444',
-                    borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 600
-                  }}>
-                    {m.tipo === 'credito' ? '↑ Crédito' : '↓ Débito'}
-                  </span>
-                </td>
-                <td style={{ padding: '12px 16px', color: '#D1D5DB', fontSize: 13 }}>{m.description}</td>
-                <td style={{ padding: '12px 16px', color: '#6B7280', fontFamily: 'monospace', fontSize: 12 }}>{m.referencia || '—'}</td>
-                <td style={{ padding: '12px 16px', color: '#6B7280', fontFamily: 'monospace', fontSize: 12 }}>{m.cvu ? m.cvu.slice(-8) : '—'}</td>
-                <td style={{ padding: '12px 16px', fontWeight: 700, fontSize: 15, color: m.tipo === 'credito' ? '#10B981' : '#EF4444' }}>
-                  {m.tipo === 'credito' ? '+' : '-'}${m.amount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
-                </td>
-                <td style={{ padding: '12px 16px' }}>
-                  <span style={{ background: '#065F46', color: '#10B981', borderRadius: 20, padding: '4px 10px', fontSize: 11 }}>{m.estado}</span>
-                </td>
-              </tr>
-            ))}
+            ) : movimientosFiltrados.map((m, i) => {
+              const comp = findComprobante(m)
+              return (
+                <tr key={m.id} style={{ borderBottom: '1px solid #374151', background: i % 2 === 0 ? 'transparent' : '#111827' }}>
+                  <td style={{ padding: '12px 16px', color: '#9CA3AF', fontSize: 13 }}>
+                    {new Date(m.createdAt).toLocaleString('es-AR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <span style={{ background: m.tipo === 'credito' ? '#065F46' : '#7F1D1D', color: m.tipo === 'credito' ? '#10B981' : '#EF4444', borderRadius: 20, padding: '4px 12px', fontSize: 12, fontWeight: 600 }}>
+                      {m.tipo === 'credito' ? '↑ Crédito' : '↓ Débito'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '12px 16px', color: '#D1D5DB', fontSize: 13 }}>{m.description}</td>
+                  <td style={{ padding: '12px 16px', color: '#6B7280', fontFamily: 'monospace', fontSize: 12 }}>{m.referencia || '—'}</td>
+                  <td style={{ padding: '12px 16px', color: '#6B7280', fontFamily: 'monospace', fontSize: 12 }}>{m.cvu ? m.cvu.slice(-8) : '—'}</td>
+                  <td style={{ padding: '12px 16px', fontWeight: 700, fontSize: 15, color: m.tipo === 'credito' ? '#10B981' : '#EF4444' }}>
+                    {m.tipo === 'credito' ? '+' : '-'}${m.amount.toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    <span style={{ background: '#065F46', color: '#10B981', borderRadius: 20, padding: '4px 10px', fontSize: 11 }}>{m.estado}</span>
+                  </td>
+                  <td style={{ padding: '12px 16px' }}>
+                    {comp ? (
+                      <button onClick={() => setComprobanteActivo(comp)} style={{ background: '#1E3A5F', color: '#60A5FA', border: '1px solid #2563EB', borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                        📄 Ver
+                      </button>
+                    ) : (
+                      <span style={{ color: '#6B7280', fontSize: 12 }}>—</span>
+                    )}
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
@@ -226,32 +228,18 @@ export default function Movimientos() {
             <form onSubmit={simularMovimiento} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div>
                 <label style={{ display: 'block', color: '#9CA3AF', fontSize: 13, marginBottom: 6 }}>Tipo</label>
-                <select
-                  value={simForm.tipo}
-                  onChange={e => setSimForm(p => ({ ...p, tipo: e.target.value }))}
-                  style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '10px 12px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
-                >
+                <select value={simForm.tipo} onChange={e => setSimForm(p => ({ ...p, tipo: e.target.value }))} style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '10px 12px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}>
                   <option value="credito">↑ Crédito (ingreso)</option>
                   <option value="debito">↓ Débito (egreso)</option>
                 </select>
               </div>
               <div>
                 <label style={{ display: 'block', color: '#9CA3AF', fontSize: 13, marginBottom: 6 }}>Monto (ARS)</label>
-                <input
-                  type="number" min="1" step="0.01" placeholder="0.00" required
-                  value={simForm.amount}
-                  onChange={e => setSimForm(p => ({ ...p, amount: e.target.value }))}
-                  style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '10px 12px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
-                />
+                <input type="number" min="1" step="0.01" placeholder="0.00" required value={simForm.amount} onChange={e => setSimForm(p => ({ ...p, amount: e.target.value }))} style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '10px 12px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }} />
               </div>
               <div>
                 <label style={{ display: 'block', color: '#9CA3AF', fontSize: 13, marginBottom: 6 }}>Descripción (opcional)</label>
-                <input
-                  type="text" placeholder="Ej: Pago de factura..."
-                  value={simForm.description}
-                  onChange={e => setSimForm(p => ({ ...p, description: e.target.value }))}
-                  style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '10px 12px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }}
-                />
+                <input type="text" placeholder="Ej: Pago de factura..." value={simForm.description} onChange={e => setSimForm(p => ({ ...p, description: e.target.value }))} style={{ width: '100%', background: '#111827', border: '1px solid #374151', borderRadius: 6, padding: '10px 12px', color: '#fff', fontSize: 14, boxSizing: 'border-box' }} />
               </div>
               <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
                 <button type="button" onClick={() => setShowSimular(false)} style={{ flex: 1, background: '#374151', color: '#fff', border: 'none', borderRadius: 8, padding: '10px', cursor: 'pointer', fontWeight: 600 }}>
@@ -265,6 +253,8 @@ export default function Movimientos() {
           </div>
         </div>
       )}
+
+      <ComprobanteModal comprobante={comprobanteActivo} onClose={() => setComprobanteActivo(null)} />
     </div>
   )
 }
