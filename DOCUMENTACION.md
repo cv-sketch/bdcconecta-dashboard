@@ -3,7 +3,8 @@
 > **Repo:** `cv-sketch/bdcconecta-dashboard` (panel admin / back-office)
 > **Repo hermano:** `cv-sketch/securepaynet-app` (app usuario final)
 > **Backend compartido:** Supabase project `lkqyzyvfcnfzihhlhuru`
-> **Última actualización:** 26/04/2026
+> **Producción admin:** https://bdcconecta-dashboard.vercel.app
+> **Última actualización:** 27/04/2026
 
 ---
 
